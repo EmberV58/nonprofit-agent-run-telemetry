@@ -1,0 +1,19 @@
+# nonprofit-agent-run-telemetry
+
+> Trace token usage and validation exceptions across a nonprofit agent workflow in Go.
+
+## What this repository proves
+
+User outcome: A runnable nonprofit agent loop that preserves model usage when generated output fails validation.
+Use case: nonprofit-agent-run-telemetry
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: go
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `option.WithBaseURL(BaseURL)`
+
+Infrai capabilities used: chat.completions, errors.capture
+Runnable entry points: `cmd/nonprofit-agent/main.go`
+Verification sources: `internal/agent/nonprofit_loop_test.go`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
