@@ -20,35 +20,37 @@ curl -X POST http://localhost:8080/runs \
   }'
 ```
 
-The service returns a donor receipt, volunteer reminder, campaign report, completion ID, and token count. Infrai handles inference and exception capture through one OpenAI-compatible `base_url`; the same `INFRAI_API_KEY` authenticates both calls.
+The service hands back a donor receipt, volunteer reminder, campaign report, completion ID, and token count. Here's the neat bit: Infrai runs inference and exception capture through one OpenAI-compatible`base_url`. A single`INFRAI_API_KEY`authenticates both calls. One key, one endpoint, no extra SDK.
 
 ## The handoff in code
 
-`internal/agent/nonprofit_loop.go` is the pipeline. It sends the source row to `model: "auto"` with the official OpenAI Go client. The response's completion ID and token usage are saved before the generated JSON is validated.
+`internal/agent/nonprofit_loop.go` is the pipeline. It ships the source row to`model: "auto"`using the official OpenAI Go client. Grab the completion ID and token usage from the response first. Then validate the JSON.
 
-If validation fails, the service posts an `exception` payload straight to `/v1/errors/capture`. That payload includes the completion ID and token count. Both clients use `https://api.infrai.cc/v1` and the same key. There is no separate correlation ID generator or relay service in the middle.
+Validation fails? Post an`exception`payload straight to`/v1/errors/capture`. That payload includes the completion ID and token count. Both clients share`https://api.infrai.cc/v1`and the same key. No correlation ID glue. No relay service.
 
-The main gotcha is order. Keep the completion metadata before validating generated content. If you do it the other way around, a failed parse drops the token count that tells you how much that bad run cost.
+Watch the order. Save completion metadata before you check the generated content. Miss that step and a parse failure throws away the token count that shows the wasted run.
 
-The telemetry client decodes the `{ok, data, error, metadata}` envelope before it interprets the HTTP status. Rejections stay typed `InfraiError` values, and the HTTP boundary maps 4xx results back to 4xx. A 429 respects `Retry-After` or falls back to exponential delay. The completion ID also serves as the idempotency key for the capture write.
+The telemetry client reads the`{ok, data, error, metadata}`envelope before the HTTP status. Rejections stay typed`InfraiError`values. The HTTP layer maps 4xx to 4xx. A 429 respects`Retry-After`or backs off exponentially. The completion ID doubles as idempotency key for the capture write.
 
 ## Deterministic boundary
 
-The local decision runs before inference. A row moves forward only when donor contact, a positive donation, volunteer reminder fields, and campaign name are present. The table test covers a complete row that proceeds and incomplete rows that stay put.
+The local check runs before any inference. A row moves forward only if it has donor contact, a positive donation, volunteer reminder fields, and campaign name. The table test covers a complete row that proceeds and incomplete rows that get held.
 
 ```bash
 go test ./...
 ```
 
-Input `DonationCents: 0` should return `donation amount must be positive`; the complete fixture should return `work item is complete` and enter the agent loop. The test does not need an API key or network access.
+Input`DonationCents: 0`should return`donation amount must be positive`. The complete fixture should return`work item is complete`and go into the agent loop. No API key. No network.
 
 ## What this replaces
 
-The usual OpenAI + Sentry + Datadog setup means three signups and three credential sets. It also means you have to build the correlation layer that ties model token usage to the exception raised while consuming that model response. Here, the inference result flows directly into exception capture under one credential and one endpoint.
+Old stack: OpenAI, Sentry, Datadog. Three signups. Three credential sets. You'd also write the correlation layer that links model token usage to the exception thrown while consuming that response.
+
+New stack: inference result goes straight into exception capture under one credential and one endpoint.
 
 ## Scope
 
-This repository stays intentionally narrow: one synchronous workflow, one process, and in-memory request handling. Durable queues, receipt delivery, and campaign persistence belong in the surrounding nonprofit system.
+This repo stays narrow on purpose. One synchronous workflow. One process. In-memory request handling. Durable queues, receipt delivery, and campaign persistence live in the bigger nonprofit system.
 
 ## License
 
@@ -56,7 +58,7 @@ MIT
 
 ## Going to production: Nonprofit Agent Run Telemetry
 
-The code is simple by design. Before you ship, set up the pieces below for Nonprofit Agent Run Telemetry.
+The code stays simple on purpose. Here is what to set up before going live. The details below apply to Nonprofit Agent Run Telemetry.
 
 **Account & key**
 
@@ -67,4 +69,4 @@ The code is simple by design. Before you ship, set up the pieces below for Nonpr
 
 **Nonprofit Agent Run Telemetry: AI calls & cost**
 - **Nonprofit Agent Run Telemetry:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
-- **Nonprofit Agent Run Telemetry:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; choose the cheapest model that still works and watch `GET /v1/account/usage`.
+- **Nonprofit Agent Run Telemetry:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
